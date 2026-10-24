@@ -1,0 +1,88 @@
+name: CI
+
+# Typecheck, lint, unit + integration tests against a throwaway Postgres, a check that the
+# hand-written migrations match prisma/schema.prisma exactly, and a production build.
+# Never touches the real database: every URL below points at the service container.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lifeos
+          POSTGRES_PASSWORD: lifeos
+          POSTGRES_DB: lifeos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U lifeos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: localhost
+      PGUSER: lifeos
+      PGPASSWORD: lifeos
+      TEST_DATABASE_URL: postgresql://lifeos:lifeos@localhost:5432/lifeos_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build test database from main's schema + this branch's new migrations
+        run: |
+          set -euo pipefail
+          createdb lifeos_ci
+          # Schema as it is on main (= production today).
+          git show origin/main:prisma/schema.prisma > /tmp/base.prisma
+          npx prisma migrate diff --from-empty --to-schema /tmp/base.prisma --script > /tmp/base.sql
+          psql -v ON_ERROR_STOP=1 -q -d lifeos_ci -f /tmp/base.sql
+          # Apply every migration this branch adds, exactly as `prisma migrate deploy` would (one transaction each).
+          for dir in prisma/migrations/*/; do
+            name=$(basename "$dir")
+            if git cat-file -e "origin/main:prisma/migrations/$name/migration.sql" 2>/dev/null; then continue; fi
+            echo "Applying new migration $name"
+            psql -v ON_ERROR_STOP=1 -q -1 -d lifeos_ci -f "$dir/migration.sql"
+          done
+
+      - name: Migrations match schema.prisma (no drift)
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+        run: |
+          npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script > /tmp/drift.sql
+          cat /tmp/drift.sql
+          if grep -vE '^\s*(--.*)?$' /tmp/drift.sql | grep -q .; then echo "::error::Database built from migrations differs from schema.prisma"; exit 1; fi
+
+      - name: Unit + integration tests
+        run: npm test
+
+      - name: Production build
+        env:
+          DATABASE_URL: postgresql://lifeos:lifeos@localhost:5432/lifeos_ci
+          APP_URL: http://localhost:3000
+        run: npx prisma generate && npx next build

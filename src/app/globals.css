@@ -1,0 +1,129 @@
+@import "tailwindcss";
+@import "@fontsource-variable/hanken-grotesk";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens. Cool paper-grey canvas, ink text, one deep-teal accent that stays reserved for
+ * primary actions and progress, plus semantic colours that carry meaning (never decoration).
+ */
+:root {
+  --background: #f3f5f7;
+  --surface: #ffffff;
+  --surface-2: #eaeef2;
+  --foreground: #131a22;
+  --muted: #566170;
+  --line: #dde2e8;
+  --primary: #0e6b5c;
+  --primary-foreground: #ffffff;
+  --primary-soft: #d9efe9;
+  --success: #15803d;
+  --success-soft: #dcf3e4;
+  --warning: #a35a07;
+  --warning-soft: #fbecd0;
+  --danger: #b92f1c;
+  --danger-soft: #fbe1dc;
+  --info: #2a5cab;
+  --info-soft: #dde8f7;
+  --ring: #0e6b5c;
+  color-scheme: light;
+}
+
+.dark {
+  --background: #0e1217;
+  --surface: #161b22;
+  --surface-2: #1e252e;
+  --foreground: #e9edf2;
+  --muted: #97a2b0;
+  --line: #262e39;
+  --primary: #3cc2a6;
+  --primary-foreground: #06201a;
+  --primary-soft: #12352e;
+  --success: #4ade80;
+  --success-soft: #10301d;
+  --warning: #f0b35a;
+  --warning-soft: #372710;
+  --danger: #f38b7b;
+  --danger-soft: #3a1a16;
+  --info: #7fa9ee;
+  --info-soft: #172640;
+  --ring: #3cc2a6;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "Hanken Grotesk Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans", "Noto Sans Bengali", sans-serif;
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-ring: var(--ring);
+  /* Radius scales with hierarchy: controls < cards < sheets. */
+  --radius-control: 0.625rem;
+  --radius-card: 0.875rem;
+  --radius-sheet: 1.25rem;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+
+/* Money and other figures line up in columns. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--primary-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sheet-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes dialog-in {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(0.98); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}

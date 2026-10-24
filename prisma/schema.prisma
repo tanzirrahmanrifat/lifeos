@@ -1,0 +1,943 @@
+// LifeOS — personal + business management system.
+//
+// Conventions
+//  - Every top-level record has `userId` (multi-user ready). Child tables (subtasks, invoice items,
+//    milestones, join tables) are owned through their parent and are always reached through it.
+//  - Money is stored as integer minor units (BigInt) + a currency code. Never floats.
+//  - Calendar dates (due dates, habit days, issue dates) use @db.Date so timezones cannot shift them.
+//  - Financial records are never hard-deleted (deletedAt / voidedAt).
+//  - Table names are snake_case plural via @@map.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+  TASK
+  GOAL
+  NOTE
+  HABIT
+}
+
+enum AccountType {
+  CASH
+  BANK
+  SAVINGS
+  WALLET
+  CREDIT_CARD
+  BUSINESS
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER_IN
+  TRANSFER_OUT
+}
+
+enum BudgetKind {
+  INCOME_TARGET
+  EXPENSE
+  SAVINGS_TARGET
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum HabitFrequency {
+  DAILY
+  WEEKDAYS
+  WEEKLY
+  MONTHLY
+}
+
+enum GoalStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum GoalProgressMode {
+  MANUAL
+  FROM_MILESTONES
+}
+
+enum FinancialGoalStatus {
+  ACTIVE
+  ACHIEVED
+  PAUSED
+  CANCELLED
+}
+
+enum ClientStatus {
+  LEAD
+  ACTIVE
+  INACTIVE
+  COMPLETED
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  PAYPAL
+  WISE
+  STRIPE
+  OTHER
+}
+
+enum CalendarEventType {
+  MEETING
+  PERSONAL
+  DEADLINE
+}
+
+enum NotificationType {
+  TASK_OVERDUE
+  TASK_UPCOMING
+  INVOICE_DUE_SOON
+  INVOICE_OVERDUE
+  GOAL_DEADLINE
+  HABIT_REMINDER
+  BUDGET_EXCEEDED
+}
+
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+// ───────────────────── Identity, security, settings ─────────────────────
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique // stored lowercase
+  passwordHash    String
+  name            String
+  phone           String?
+  avatarUrl       String?
+  timezone        String    @default("UTC")
+  emailVerifiedAt DateTime?
+  /// True only for rows created by `npm run seed:demo`. Keeps demo data separable from real data.
+  isDemo          Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sessions              Session[]
+  passwordResetTokens   PasswordResetToken[]
+  settings              UserSettings?
+  business              BusinessProfile?
+  categories            Category[]
+  tags                  Tag[]
+  accounts              Account[]
+  transactions          Transaction[]
+  transfers             Transfer[]
+  budgets               Budget[]
+  financialGoals        FinancialGoal[]
+  savingsContributions  SavingsContribution[]
+  tasks                 Task[]
+  habits                Habit[]
+  habitLogs             HabitLog[]
+  goals                 Goal[]
+  calendarEvents        CalendarEvent[]
+  notes                 Note[]
+  clients               Client[]
+  projects              Project[]
+  invoices              Invoice[]
+  payments              Payment[]
+  numberSequences       NumberSequence[]
+  attachments           Attachment[]
+  notifications         Notification[]
+  activityLogs          ActivityLog[]
+
+  @@map("users")
+}
+
+/// Server-side sessions. Only a SHA-256 hash of the cookie token is stored, so a database
+/// leak does not hand out usable sessions, and sessions can be revoked individually.
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  userAgent  String?
+  ip         String?
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+/// Fixed-window rate limiting that works on serverless (no in-memory state).
+model RateLimitBucket {
+  key       String   @id // e.g. "login:ip:1.2.3.4"
+  count     Int
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+  @@map("rate_limit_buckets")
+}
+
+model UserSettings {
+  id                      String          @id @default(cuid())
+  userId                  String          @unique
+  baseCurrency            String          @default("USD") // ISO 4217
+  theme                   ThemePreference @default(SYSTEM)
+  dateFormat              String          @default("dd MMM yyyy")
+  weekStartsOn            Int             @default(1) // 0 = Sunday … 6 = Saturday
+  /// { taskOverdue: true, taskUpcoming: true, invoiceDueSoon: true, ... }
+  notificationPrefs       Json            @default("{}")
+  invoicePrefix           String          @default("INV")
+  invoiceNextNumber       Int             @default(1)
+  invoiceNumberPadding    Int             @default(4)
+  invoiceIncludeYear      Boolean         @default(true)
+  invoiceResetYearly      Boolean         @default(true)
+  defaultPaymentTermsDays Int             @default(14)
+  defaultTaxBps           Int             @default(0)
+  defaultInvoiceNotes     String?
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("settings")
+}
+
+model BusinessProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  name      String?
+  logoUrl   String?
+  address   String?
+  email     String?
+  phone     String?
+  website   String?
+  taxId     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("business_profiles")
+}
+
+/// One table for every kind of user-defined category (income, expense, task, goal, note).
+model Category {
+  id        String       @id @default(cuid())
+  userId    String
+  type      CategoryType
+  name      String
+  color     String?
+  icon      String?
+  parentId  String?
+  isSystem  Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+
+  transactions   Transaction[]
+  budgets        Budget[]
+  financialGoals FinancialGoal[]
+  tasks          Task[]
+  habits         Habit[]
+  goals          Goal[]
+  notes          Note[]
+
+  @@unique([userId, type, name])
+  @@index([userId, type])
+  @@map("transaction_categories")
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks TaskTag[]
+  notes NoteTag[]
+
+  @@unique([userId, name])
+  @@map("tags")
+}
+
+// ───────────────────────────── Finance ─────────────────────────────
+
+model Account {
+  id                  String      @id @default(cuid())
+  userId              String
+  name                String
+  type                AccountType
+  currency            String
+  openingBalanceMinor BigInt      @default(0)
+  /// Cached ledger balance. Only ever changed inside the same DB transaction that writes a
+  /// Transaction row; `reconcileAccount()` can recompute it from the ledger to detect drift.
+  currentBalanceMinor BigInt      @default(0)
+  isSavings           Boolean     @default(false)
+  archivedAt          DateTime?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  deletedAt           DateTime?
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  transfersOut Transfer[]    @relation("TransferFrom")
+  transfersIn  Transfer[]    @relation("TransferTo")
+  payments     Payment[]
+  contributions SavingsContribution[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Transaction {
+  id          String          @id @default(cuid())
+  userId      String
+  accountId   String
+  type        TransactionType
+  /// Always positive. Direction comes from `type`.
+  amountMinor BigInt
+  currency    String
+  date        DateTime        @db.Date
+  categoryId  String?
+  vendor      String?
+  source      String?
+  clientId    String?
+  projectId   String?
+  paymentId   String?         @unique
+  transferId  String?
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  deletedAt   DateTime?
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  client   Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  payment  Payment?  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  transfer Transfer? @relation(fields: [transferId], references: [id], onDelete: Restrict)
+
+  attachments   Attachment[]
+  contributions SavingsContribution[]
+
+  @@index([userId, date])
+  @@index([userId, type, date])
+  @@index([accountId, date])
+  @@index([clientId])
+  @@index([projectId])
+  @@index([categoryId])
+  @@map("transactions")
+}
+
+model Transfer {
+  id              String   @id @default(cuid())
+  userId          String
+  fromAccountId   String
+  toAccountId     String
+  amountFromMinor BigInt
+  amountToMinor   BigInt
+  /// Present when the two accounts use different currencies.
+  fxRate          Decimal? @db.Decimal(18, 8)
+  date            DateTime @db.Date
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromAccount Account       @relation("TransferFrom", fields: [fromAccountId], references: [id], onDelete: Restrict)
+  toAccount   Account       @relation("TransferTo", fields: [toAccountId], references: [id], onDelete: Restrict)
+  legs        Transaction[]
+
+  @@index([userId, date])
+  @@map("transfers")
+}
+
+model Budget {
+  id          String     @id @default(cuid())
+  userId      String
+  /// First day of the budget month.
+  month       DateTime   @db.Date
+  kind        BudgetKind
+  categoryId  String?
+  amountMinor BigInt
+  currency    String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  // Postgres treats NULLs as distinct, so a partial unique index for `categoryId IS NULL`
+  // rows is added in the Phase 3 migration.
+  @@unique([userId, month, kind, categoryId])
+  @@index([userId, month])
+  @@map("budgets")
+}
+
+model FinancialGoal {
+  id          String              @id @default(cuid())
+  userId      String
+  name        String
+  targetMinor BigInt
+  /// Cached sum of contributions; kept in sync by the savings service.
+  currentMinor BigInt             @default(0)
+  currency    String
+  targetDate  DateTime?           @db.Date
+  categoryId  String?
+  priority    Priority            @default(MEDIUM)
+  status      FinancialGoalStatus @default(ACTIVE)
+  notes       String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  deletedAt   DateTime?
+
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category      Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  contributions SavingsContribution[]
+
+  @@index([userId, status])
+  @@map("financial_goals")
+}
+
+model SavingsContribution {
+  id              String   @id @default(cuid())
+  userId          String
+  financialGoalId String
+  amountMinor     BigInt
+  currency        String
+  date            DateTime @db.Date
+  /// Optional: where the money physically came from / went to.
+  sourceAccountId String?
+  transactionId   String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financialGoal FinancialGoal @relation(fields: [financialGoalId], references: [id], onDelete: Restrict)
+  sourceAccount Account?      @relation(fields: [sourceAccountId], references: [id], onDelete: SetNull)
+  transaction   Transaction?  @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([financialGoalId])
+  @@map("savings_contributions")
+}
+
+// ─────────────────────────── Productivity ───────────────────────────
+
+model Task {
+  id                 String     @id @default(cuid())
+  userId             String
+  title              String
+  description        String?
+  status             TaskStatus @default(TODO)
+  priority           Priority   @default(MEDIUM)
+  startDate          DateTime?  @db.Date
+  dueDate            DateTime?  @db.Date
+  completedAt        DateTime?
+  categoryId         String?
+  projectId          String?
+  clientId           String?
+  goalId             String?
+  /// { freq: "DAILY"|"WEEKLY"|"MONTHLY"|"CUSTOM", interval: 1, byWeekday: [1,3], until: "2026-12-31" }
+  recurrenceRule     Json?
+  recurrenceParentId String?
+  notes              String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  deletedAt          DateTime?
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  goal      Goal?     @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  recurrenceParent Task?  @relation("TaskRecurrence", fields: [recurrenceParentId], references: [id], onDelete: SetNull)
+  recurrences      Task[] @relation("TaskRecurrence")
+
+  subtasks    TaskSubtask[]
+  tags        TaskTag[]
+  attachments Attachment[]
+
+  @@index([userId, status, dueDate])
+  @@index([userId, dueDate])
+  @@index([projectId])
+  @@index([clientId])
+  @@map("tasks")
+}
+
+model TaskSubtask {
+  id        String   @id @default(cuid())
+  taskId    String
+  title     String
+  done      Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("task_subtasks")
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+  @@map("task_tags")
+}
+
+model Habit {
+  id              String         @id @default(cuid())
+  userId          String
+  name            String
+  description     String?
+  frequency       HabitFrequency @default(DAILY)
+  /// For WEEKDAYS: 0 = Sunday … 6 = Saturday.
+  weekdays        Int[]
+  /// Completions required per period (e.g. 3× per week).
+  targetPerPeriod Int            @default(1)
+  startDate       DateTime       @db.Date
+  endDate         DateTime?      @db.Date
+  reminderTime    String? // "HH:mm" in the user's timezone
+  categoryId      String?
+  color           String?
+  icon            String?
+  currentStreak   Int            @default(0)
+  longestStreak   Int            @default(0)
+  archivedAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  logs     HabitLog[]
+
+  @@index([userId, archivedAt])
+  @@map("habits")
+}
+
+model HabitLog {
+  id        String   @id @default(cuid())
+  userId    String
+  habitId   String
+  date      DateTime @db.Date
+  value     Int      @default(1)
+  note      String?
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, date])
+  @@index([userId, date])
+  @@map("habit_logs")
+}
+
+model Goal {
+  id           String           @id @default(cuid())
+  userId       String
+  name         String
+  description  String?
+  categoryId   String?
+  startDate    DateTime?        @db.Date
+  targetDate   DateTime?        @db.Date
+  status       GoalStatus       @default(NOT_STARTED)
+  progressMode GoalProgressMode @default(FROM_MILESTONES)
+  progress     Int              @default(0) // 0–100
+  notes        String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  deletedAt    DateTime?
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  milestones GoalMilestone[]
+  tasks      Task[]
+  notesList  Note[]
+
+  @@index([userId, status])
+  @@map("goals")
+}
+
+model GoalMilestone {
+  id        String    @id @default(cuid())
+  goalId    String
+  title     String
+  dueDate   DateTime? @db.Date
+  doneAt    DateTime?
+  position  Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+  @@map("goal_milestones")
+}
+
+model CalendarEvent {
+  id             String            @id @default(cuid())
+  userId         String
+  title          String
+  type           CalendarEventType @default(PERSONAL)
+  startsAt       DateTime
+  endsAt         DateTime?
+  allDay         Boolean           @default(false)
+  clientId       String?
+  projectId      String?
+  location       String?
+  notes          String?
+  /// For future Google Calendar sync.
+  externalId     String?
+  externalSource String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  deletedAt      DateTime?
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client  Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, startsAt])
+  @@unique([userId, externalSource, externalId])
+  @@map("calendar_events")
+}
+
+model Note {
+  id         String    @id @default(cuid())
+  userId     String
+  title      String
+  content    String    @default("")
+  categoryId String?
+  clientId   String?
+  projectId  String?
+  goalId     String?
+  pinned     Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  client      Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  goal        Goal?        @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  tags        NoteTag[]
+  attachments Attachment[]
+
+  @@index([userId, updatedAt])
+  @@map("notes")
+}
+
+model NoteTag {
+  noteId String
+  tagId  String
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, tagId])
+  @@map("note_tags")
+}
+
+// ───────────────────────────── Business ─────────────────────────────
+
+model Client {
+  id        String       @id @default(cuid())
+  userId    String
+  name      String
+  company   String?
+  email     String?
+  phone     String?
+  website   String?
+  address   String?
+  country   String?
+  status    ClientStatus @default(LEAD)
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects       Project[]
+  tasks          Task[]
+  invoices       Invoice[]
+  payments       Payment[]
+  transactions   Transaction[]
+  calendarEvents CalendarEvent[]
+  notesList      Note[]
+  attachments    Attachment[]
+
+  @@index([userId, status])
+  @@index([userId, name])
+  @@map("clients")
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  userId      String
+  clientId    String
+  name        String
+  description String?
+  startDate   DateTime?     @db.Date
+  deadline    DateTime?     @db.Date
+  budgetMinor BigInt?
+  currency    String
+  status      ProjectStatus @default(PLANNING)
+  progress    Int           @default(0)
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client         Client          @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  tasks          Task[]
+  invoices       Invoice[]
+  transactions   Transaction[]
+  calendarEvents CalendarEvent[]
+  notesList      Note[]
+  attachments    Attachment[]
+
+  @@index([userId, status])
+  @@index([clientId])
+  @@map("projects")
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  userId          String
+  clientId        String
+  projectId       String?
+  number          String
+  status          InvoiceStatus @default(DRAFT)
+  issueDate       DateTime      @db.Date
+  dueDate         DateTime      @db.Date
+  currency        String
+  /// Snapshots computed server-side when the invoice is saved.
+  subtotalMinor   BigInt        @default(0)
+  discountMinor   BigInt        @default(0)
+  taxMinor        BigInt        @default(0)
+  totalMinor      BigInt        @default(0)
+  amountPaidMinor BigInt        @default(0)
+  notes           String?
+  paymentTerms    String?
+  sentAt          DateTime?
+  viewedAt        DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  project     Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  items       InvoiceItem[]
+  payments    Payment[]
+  attachments Attachment[]
+
+  @@unique([userId, number])
+  @@index([userId, status, dueDate])
+  @@index([clientId])
+  @@index([projectId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id             String  @id @default(cuid())
+  invoiceId      String
+  description    String
+  quantity       Decimal @db.Decimal(12, 4)
+  rateMinor      BigInt
+  discountBps    Int     @default(0)
+  taxBps         Int     @default(0)
+  lineTotalMinor BigInt
+  position       Int     @default(0)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  userId      String
+  invoiceId   String
+  clientId    String
+  accountId   String
+  amountMinor BigInt
+  currency    String
+  date        DateTime      @db.Date
+  method      PaymentMethod @default(BANK_TRANSFER)
+  reference   String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  /// Payments are voided, never deleted; the linked income transaction is reversed.
+  voidedAt    DateTime?
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoice     Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  client      Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  transaction Transaction?
+
+  @@index([userId, date])
+  @@index([invoiceId])
+  @@index([clientId])
+  @@map("payments")
+}
+
+/// Race-safe counters (invoice numbers). Incremented with a row lock inside a transaction.
+model NumberSequence {
+  userId    String
+  key       String // e.g. "invoice:2026"
+  lastValue Int    @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key])
+  @@map("number_sequences")
+}
+
+// ─────────────────────────── Cross-cutting ───────────────────────────
+
+/// Exactly one of the owner FKs is set (enforced by a CHECK constraint added in the
+/// migration that introduces uploads).
+model Attachment {
+  id           String   @id @default(cuid())
+  userId       String
+  storageKey   String   @unique // random key; never derived from the file name
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  sha256       String
+  transactionId String?
+  invoiceId    String?
+  clientId     String?
+  projectId    String?
+  noteId       String?
+  taskId       String?
+  createdAt    DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  invoice     Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  client      Client?      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  note        Note?        @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  task        Task?        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("attachments")
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  type       NotificationType
+  title      String
+  body       String?
+  entityType String?
+  entityId   String?
+  /// Prevents the daily job from creating the same notification twice.
+  dedupeKey  String
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
+/// Audit trail. Feeds each client's "activity history" now and AI/insight features later.
+model ActivityLog {
+  id         String   @id @default(cuid())
+  userId     String
+  entityType String
+  entityId   String
+  action     String
+  meta       Json?
+  at         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, at])
+  @@index([userId, entityType, entityId])
+  @@map("activity_logs")
+}
