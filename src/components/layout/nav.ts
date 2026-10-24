@@ -5,6 +5,8 @@ import {
   CreditCard,
   FileText,
   FolderKanban,
+  HandCoins,
+  HandHeart,
   LayoutDashboard,
   PiggyBank,
   Repeat,
@@ -46,6 +48,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Finances", href: "/finances", icon: Wallet, phase: 3 },
       { label: "Financial goals", href: "/financial-goals", icon: PiggyBank, phase: 3 },
+      { label: "Loans (ধার)", href: "/loans", icon: HandCoins, phase: 3 },
+      { label: "Donations (দান)", href: "/donations", icon: HandHeart, phase: 3 },
     ],
   },
   {

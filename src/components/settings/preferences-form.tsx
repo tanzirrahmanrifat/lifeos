@@ -3,7 +3,7 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { Select } from "@/components/ui/input";
 import { Field, FormError, describe } from "@/components/forms/field";
 import { useServerForm } from "@/hooks/use-server-form";
-import { CURRENCIES } from "@/lib/money";
+import { CurrencyOptions } from "@/components/forms/currency-options";
 import { cn } from "@/lib/utils";
 import { updatePreferencesAction } from "@/modules/settings/actions";
 import { DATE_FORMATS, preferencesSchema } from "@/modules/settings/schema";
@@ -59,11 +59,7 @@ export function PreferencesForm({ settings: s }: Props) {
       <div className="grid gap-5 sm:grid-cols-2">
         <Field label="Main currency" htmlFor="baseCurrency" error={err("baseCurrency")} hint="Totals and reports are shown in this currency. Existing records keep their own currency.">
           <Select {...describe("baseCurrency", err("baseCurrency"), "hint")} {...form.register("baseCurrency")}>
-            {CURRENCIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code} — {c.name}
-              </option>
-            ))}
+            <CurrencyOptions />
           </Select>
         </Field>
         <Field label="Date format" htmlFor="dateFormat" error={err("dateFormat")}>

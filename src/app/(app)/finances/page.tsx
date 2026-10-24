@@ -17,7 +17,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { SegmentedLinks } from "@/components/ui/segmented";
 import { requireUserOrRedirect } from "@/lib/auth/require-user";
 import { addMonthsIso } from "@/lib/dates";
-import { formatMoney, Money } from "@/lib/money";
+import { formatMoney, Money, totalsByCurrency } from "@/lib/money";
 import { buildUrl, first, type RawSearchParams } from "@/lib/search-params";
 import { getBudgetSummary, listAccounts, listTransactions, listTransfers } from "@/modules/finance/service";
 import { transactionListQuerySchema } from "@/modules/finance/schema";
@@ -43,7 +43,9 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
   const [accounts, incomeCats, expenseCats] = await Promise.all([listAccounts(ctx, { includeArchived: true }), listCategoriesOfType(ctx, "INCOME"), listCategoriesOfType(ctx, "EXPENSE")]);
   const activeAccounts = accounts.filter((a) => !a.archived);
   const accountOptions = activeAccounts.map((a) => ({ id: a.id, name: a.name }));
-  const totalBalance = accounts.filter((a) => a.balance.currency === currency && !a.archived).reduce((sum, a) => sum.add(Money.fromDTO(a.balance)), Money.zero(currency));
+  // One total per currency (BDT, GBP, EUR first). Amounts in different currencies are never added together.
+  const balances = totalsByCurrency(activeAccounts.map((a) => Money.fromDTO(a.balance)));
+  const shownBalances = balances.length > 0 ? balances : [Money.zero(currency).toDTO()];
 
   return (
     <>
@@ -60,8 +62,15 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
       />
 
       <Card className="mb-5 p-4 md:p-5">
-        <p className="text-sm text-muted">Total balance ({currency})</p>
-        <p className="tabular mt-1 text-2xl font-semibold">{formatMoney(totalBalance)}</p>
+        <p className="text-sm text-muted">{shownBalances.length > 1 ? "Total balance by currency" : `Total balance (${shownBalances[0]!.currency})`}</p>
+        <div className="mt-1 flex flex-wrap gap-x-8 gap-y-2">
+          {shownBalances.map((b) => (
+            <p key={b.currency} className="tabular text-2xl font-semibold">
+              {formatMoney(Money.fromDTO(b))}
+              {shownBalances.length > 1 && <span className="ml-1.5 text-sm font-normal text-muted">{b.currency}</span>}
+            </p>
+          ))}
+        </div>
       </Card>
 
       <SegmentedLinks
@@ -70,7 +79,7 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
       />
 
       <div className="mt-4">
-        {tab === "accounts" && <AccountsTab accounts={accounts} />}
+        {tab === "accounts" && <AccountsTab accounts={accounts} baseCurrency={currency} />}
         {tab === "transactions" && <TransactionsTab searchParams={sp} accountOptions={accountOptions} incomeCats={incomeCats} expenseCats={expenseCats} today={clock.today} dateFormat={bundle.settings.dateFormat} ctx={ctx} />}
         {tab === "transfers" && <TransfersTab ctx={ctx} dateFormat={bundle.settings.dateFormat} activeAccounts={activeAccounts} clock={clock} />}
         {tab === "budgets" && <BudgetsTab searchParams={sp} ctx={ctx} currency={currency} today={clock.today} />}
@@ -79,19 +88,24 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
   );
 }
 
-async function AccountsTab({ accounts }: { accounts: Awaited<ReturnType<typeof listAccounts>> }) {
+async function AccountsTab({ accounts, baseCurrency }: { accounts: Awaited<ReturnType<typeof listAccounts>>; baseCurrency: string }) {
   if (accounts.length === 0) {
     return (
       <Card>
-        <EmptyState icon={Wallet} title="No accounts yet" description="Add the places you keep money — cash, a bank account, a wallet — and every transaction updates its balance automatically." action={<NewAccountButton>Add your first account</NewAccountButton>} />
+        <EmptyState icon={Wallet} title="No accounts yet" description="Add the places you keep money — cash, a bank account, a wallet — and every transaction updates its balance automatically." action={<NewAccountButton defaultCurrency={baseCurrency}>Add your first account</NewAccountButton>} />
       </Card>
     );
   }
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {accounts.map((a) => (
-        <AccountCard key={a.id} account={a} hasActivity={false} />
-      ))}
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <NewAccountButton variant="outline" size="sm" defaultCurrency={baseCurrency} />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {accounts.map((a) => (
+          <AccountCard key={a.id} account={a} hasActivity={false} />
+        ))}
+      </div>
     </div>
   );
 }

@@ -181,7 +181,7 @@ export async function archiveCategory(ctx: Ctx, id: string): Promise<void> {
  * Categories of one kind. Categories added in later phases (habits arrived in Phase 2) are created
  * on first use, so accounts made earlier get the same starter set as new ones.
  */
-export async function listCategoriesOfType(ctx: Ctx, type: "INCOME" | "EXPENSE" | "TASK" | "GOAL" | "NOTE" | "HABIT") {
+export async function listCategoriesOfType(ctx: Ctx, type: "INCOME" | "EXPENSE" | "TASK" | "GOAL" | "NOTE" | "HABIT" | "DONATION") {
   const db = forUser(ctx.userId);
   const select = { id: true, name: true, color: true } as const;
   const list = () => db.category.findMany({ where: { type, deletedAt: null }, orderBy: { name: "asc" }, select });

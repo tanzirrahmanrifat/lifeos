@@ -147,3 +147,16 @@ No new database migrations this phase. Run `npx prisma migrate deploy` as usual 
 **One-time setup**: add a `DIRECT_URL` environment variable in Vercel with the same value as `DATABASE_URL_UNPOOLED` (Neon already provides both, but only `DATABASE_URL` gets used by the app itself — `DIRECT_URL` is used only for the migration step). This is needed because Postgres advisory locks — which `prisma migrate deploy` takes to stop two simultaneous deploys from migrating at once — don't work through PgBouncer's pooled connection, which is what `DATABASE_URL` normally points at.
 
 Without `DIRECT_URL` set, the build script falls back to `DATABASE_URL`, so nothing breaks — it just means migrations run against the pooled connection, which usually works for a single-deploy-at-a-time setup like this one, but `DIRECT_URL` is the correct, recommended way to set it up.
+
+## Loans, Donations, inline categories & BDT/GBP/EUR (this update)
+
+- **Loans — ধার & কর্জে হাসানা** (`/loans`): record money you gave (পাবো) or took (দেবো), as an ordinary loan or an interest-free Qard al-Hasan. Phone, due date (overdue is flagged), notes. Log repayments one by one; status moves Open → Partly repaid → Settled. A loan you gave can be **forgiven (মাফ)**, optionally logging the waived amount as a donation, and the forgiveness can be undone.
+  - If you link an account, the money really moves: two new ledger types, `LOAN_OUT` / `LOAN_IN`, keep the account balance exact (covered by `reconcileAccount()`), and they are **never** counted as income or expense in the dashboard, budgets or reports.
+  - Once a loan has repayments, its amount, currency, date, account and direction lock (name, phone, type, due date and notes stay editable). Repayments can't exceed what's left — checked atomically, so two simultaneous repayments can't overpay.
+- **Donations — দান** (`/donations`): Sadaqah, Zakat, Fitra, Mosque/Madrasa… (a new `DONATION` category type with starter categories, editable in Settings → Categories). Totals for this month, this year and all time, a by-type breakdown, and a year switcher. Paid from an account → a linked expense under the system category "Donations" is created, so balances and spending reports include it; that expense is edited from the Donations page only.
+- **Create categories inline**: every category picker in the income/expense form, the donation form and the forgive panel has a **+** button that creates the category on the spot and selects it.
+- **BDT / GBP / EUR first**: every currency picker lists BDT, GBP and EUR at the top. Loans and donations each have their own currency. Totals are shown **per currency** (never silently converted); the Finances page now shows your balance in each currency, not only the main one. New accounts default to your main currency.
+
+New migration: `prisma/migrations/20261022120000_loans_donations` (additive only — new enum values, three new tables, three nullable columns on `transactions`; no existing rows change). It runs automatically during `npm run build` on Vercel.
+
+Tests: `src/test/phase7.integration.test.ts` (balances vs. ledger for every loan/donation flow, overpayment race, locking, forgiveness, tenant isolation, per-currency totals).

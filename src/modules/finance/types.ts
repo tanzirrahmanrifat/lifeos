@@ -28,6 +28,8 @@ export interface TransactionDTO {
   projectId: string | null;
   paymentId: string | null;
   transferId: string | null;
+  /** Set when this expense was created by a donation; edit it from the Donations page. */
+  donationId: string | null;
 }
 
 export interface TransactionListResult {

@@ -79,7 +79,7 @@ const hexColor = z
   .regex(/^#[0-9a-fA-F]{6}$/, "Use a colour like #0e6b5c.");
 
 export const categorySchema = z.object({
-  type: z.enum(["INCOME", "EXPENSE", "TASK", "GOAL", "NOTE", "HABIT"]),
+  type: z.enum(["INCOME", "EXPENSE", "TASK", "GOAL", "NOTE", "HABIT", "DONATION"]),
   name: z.string().trim().min(1, "Enter a name.").max(40, "Use 40 characters or fewer."),
   color: hexColor.optional(),
 });

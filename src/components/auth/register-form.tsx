@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Field, FormError, PasswordInput, describe } from "@/components/forms/field";
 import { useServerForm } from "@/hooks/use-server-form";
-import { CURRENCIES } from "@/lib/money";
+import { CurrencyOptions } from "@/components/forms/currency-options";
 import { registerAction } from "@/modules/auth/actions";
 import { registerSchema } from "@/modules/auth/schema";
 
@@ -40,11 +40,7 @@ export function RegisterForm() {
       </Field>
       <Field label="Main currency" htmlFor="baseCurrency" error={err("baseCurrency")} hint="Used for totals and reports. You can change it later in Settings.">
         <Select {...describe("baseCurrency", err("baseCurrency"))} {...form.register("baseCurrency")}>
-          {CURRENCIES.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.code} — {c.name}
-            </option>
-          ))}
+          <CurrencyOptions />
         </Select>
       </Field>
       <Field label="Password" htmlFor="password" error={err("password")} hint="At least 10 characters.">

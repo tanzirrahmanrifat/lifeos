@@ -53,6 +53,17 @@ const list: CurrencyInfo[] = [
 ];
 
 export const CURRENCIES: readonly CurrencyInfo[] = list;
+
+/** Shown first in every currency picker and in per-currency totals. */
+export const PINNED_CURRENCY_CODES = ["BDT", "GBP", "EUR"] as const;
+
+/** Sort key that puts BDT, GBP, EUR first, then everything else alphabetically. */
+export function currencyOrder(a: string, b: string): number {
+  const ia = (PINNED_CURRENCY_CODES as readonly string[]).indexOf(a);
+  const ib = (PINNED_CURRENCY_CODES as readonly string[]).indexOf(b);
+  if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  return a.localeCompare(b);
+}
 export const CURRENCY_CODES = list.map((c) => c.code) as [string, ...string[]];
 
 const byCode = new Map(list.map((c) => [c.code, c]));
