@@ -25,6 +25,7 @@ export const DEFAULT_CATEGORIES: DefaultCategory[] = [
   { type: "EXPENSE", name: "Entertainment", color: "#be185d" },
   { type: "EXPENSE", name: "Shopping", color: "#a16207" },
   { type: "EXPENSE", name: "Education", color: "#4d7c0f" },
+  { type: "EXPENSE", name: "Donations", color: "#15803d", isSystem: true }, // used by donations paid from an account
   { type: "EXPENSE", name: "Other", color: "#64748b" },
   // Task
   { type: "TASK", name: "Personal", color: "#7a4fb5" },
@@ -50,4 +51,14 @@ export const DEFAULT_CATEGORIES: DefaultCategory[] = [
   { type: "NOTE", name: "Ideas", color: "#b7791f" },
   { type: "NOTE", name: "Meetings", color: "#2b5fb4" },
   { type: "NOTE", name: "Reference", color: "#0e7490" },
+  // Donation (দান)
+  { type: "DONATION", name: "Sadaqah (সাদাকাহ)", color: "#15803d" },
+  { type: "DONATION", name: "Zakat (যাকাত)", color: "#0e6b5c" },
+  { type: "DONATION", name: "Fitra (ফিতরা)", color: "#b7791f" },
+  { type: "DONATION", name: "Mosque / Madrasa", color: "#2b5fb4" },
+  { type: "DONATION", name: "Family & relatives", color: "#7a4fb5" },
+  { type: "DONATION", name: "Other", color: "#64748b" },
 ];
+
+/** Expense category that donations paid from an account are booked under. */
+export const CHARITY_EXPENSE_CATEGORY = { name: "Donations", color: "#15803d" } as const;

@@ -1,5 +1,6 @@
 "use client";
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import Link from "next/link";
 import * as React from "react";
 import { relativeDayLabel } from "@/lib/dates";
 import { formatMoney, Money } from "@/lib/money";
@@ -23,7 +24,7 @@ export function TransactionsList({ transactions, accounts, incomeCategories, exp
           const money = Money.fromDTO(t.amount);
           return (
             <li key={t.id}>
-              <button type="button" onClick={() => setEditing(t)} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-2/60">
+              <RowAction transaction={t} onEdit={() => setEditing(t)}>
                 <span className={cn("grid size-9 shrink-0 place-items-center rounded-full", income ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
                   {income ? <ArrowDownLeft className="size-4" aria-hidden /> : <ArrowUpRight className="size-4" aria-hidden />}
                 </span>
@@ -39,12 +40,30 @@ export function TransactionsList({ transactions, accounts, incomeCategories, exp
                   {income ? "+" : "−"}
                   {formatMoney(money.abs())}
                 </span>
-              </button>
+              </RowAction>
             </li>
           );
         })}
       </ul>
       <TransactionFormDialog open={editing !== null} onOpenChange={(o) => !o && setEditing(null)} transaction={editing} accounts={accounts} incomeCategories={incomeCategories} expenseCategories={expenseCategories} defaultDate={today} />
     </>
+  );
+}
+
+const ROW_CLASS = "flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-2/60";
+
+/** Most rows open the edit dialog; a donation's expense is managed on the Donations page instead. */
+function RowAction({ transaction, onEdit, children }: { transaction: TransactionDTO; onEdit: () => void; children: React.ReactNode }) {
+  if (transaction.donationId) {
+    return (
+      <Link href="/donations" className={ROW_CLASS} title="Recorded from Donations — edit it there">
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onEdit} className={ROW_CLASS}>
+      {children}
+    </button>
   );
 }

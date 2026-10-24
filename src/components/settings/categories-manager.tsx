@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { archiveCategoryAction, createCategoryAction, updateCategoryAction } from "@/modules/settings/actions";
 
-type CategoryType = "INCOME" | "EXPENSE" | "TASK" | "GOAL" | "NOTE" | "HABIT";
+type CategoryType = "INCOME" | "EXPENSE" | "TASK" | "GOAL" | "NOTE" | "HABIT" | "DONATION";
 interface Category {
   id: string;
   type: CategoryType;
@@ -20,6 +20,7 @@ interface Category {
 const TYPES: { value: CategoryType; label: string; hint: string }[] = [
   { value: "INCOME", label: "Income", hint: "Used when you record money coming in." },
   { value: "EXPENSE", label: "Expense", hint: "Used for spending, budgets and the expense breakdown." },
+  { value: "DONATION", label: "Donation (দান)", hint: "Sadaqah, Zakat, Fitra… used on the Donations page." },
   { value: "TASK", label: "Task", hint: "Group your to-dos." },
   { value: "GOAL", label: "Goal", hint: "Group your goals." },
   { value: "HABIT", label: "Habit", hint: "Group your habits." },

@@ -51,9 +51,11 @@ export const updateInvoiceSettingsAction = async (input: unknown) =>
 export const updateNotificationPrefsAction = async (input: unknown) =>
   run((ctx) => service.updateNotificationPrefs(ctx, notificationPrefsSchema.parse(input)));
 
+/** Returns the created category so forms can select it straight away (inline "+ New category"). */
 export const createCategoryAction = async (input: unknown) =>
   run(async (ctx) => {
-    await service.createCategory(ctx, categorySchema.parse(input));
+    const c = await service.createCategory(ctx, categorySchema.parse(input));
+    return { id: c.id, name: c.name, color: c.color };
   });
 
 export const updateCategoryAction = async (input: unknown) =>

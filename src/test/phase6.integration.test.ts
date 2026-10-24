@@ -125,15 +125,23 @@ d("phase 6 (real database)", () => {
       await m.tasks.setTaskStatus(u, t1, "COMPLETED");
       await m.tasks.saveTask(u, { title: "R-open", description: null, status: "TODO", priority: "MEDIUM", startDate: null, dueDate: null, categoryId: null, projectId: null, tags: [], repeat: "NONE", repeatInterval: 1, repeatUnit: "DAYS", notes: null, subtasks: [] });
 
-      const habitId = await m.habits.saveHabit(u, { name: "Report habit", description: null, frequency: "DAILY", weekdays: [], targetPerPeriod: 1, startDate: "2026-09-01", endDate: null, reminderTime: null, categoryId: null, color: "#0e6b5c", icon: "check" });
-      const clock = { timeZone: "UTC", today, weekStartsOn: 1 };
-      for (const day of ["2026-09-20", "2026-09-21", "2026-09-22", "2026-09-23"]) await m.habits.toggleHabitLog(u, habitId, day, clock);
+      // Task completion/creation timestamps are "now", so this report must look at the real current
+      // month (a fixed September range only passed while the test was written in September).
+      const now = new Date().toISOString().slice(0, 10);
+      const [y, mo] = now.split("-").map(Number) as [number, number];
+      const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+      const monthStart = `${now.slice(0, 7)}-01`;
+      const currentRange = { from: monthStart, to: `${now.slice(0, 7)}-${String(daysInMonth).padStart(2, "0")}`, label: "This month" };
 
-      const report = await m.reports.getProductivityReport(u, range);
+      const habitId = await m.habits.saveHabit(u, { name: "Report habit", description: null, frequency: "DAILY", weekdays: [], targetPerPeriod: 1, startDate: monthStart, endDate: null, reminderTime: null, categoryId: null, color: "#0e6b5c", icon: "check" });
+      const clock = { timeZone: "UTC", today: now, weekStartsOn: 1 };
+      await m.habits.toggleHabitLog(u, habitId, monthStart, clock);
+
+      const report = await m.reports.getProductivityReport(u, currentRange);
       expect(report.tasksCompleted).toBeGreaterThanOrEqual(1);
       expect(report.tasksCreated).toBeGreaterThanOrEqual(2);
       expect(report.habitCompletionRate).not.toBeNull();
-      expect(report.dailyCompletions.length).toBe(30); // September has 30 days
+      expect(report.dailyCompletions.length).toBe(daysInMonth);
       const totalFromDaily = report.dailyCompletions.reduce((s: number, d: { count: number }) => s + d.count, 0);
       expect(totalFromDaily).toBe(report.tasksCompleted);
     });

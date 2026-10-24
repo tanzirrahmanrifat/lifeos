@@ -6,6 +6,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Field, FormError, describe } from "@/components/forms/field";
 import { FormFooter } from "@/components/forms/form-footer";
+import { CategorySelect } from "@/components/forms/category-select";
 import { OptionSelect } from "@/components/forms/selects";
 import { useServerForm } from "@/hooks/use-server-form";
 import { deleteTransactionAction, saveTransactionAction } from "@/modules/finance/actions";
@@ -113,7 +114,10 @@ function TransactionForm({
             type="button"
             role="tab"
             aria-selected={type === t}
-            onClick={() => form.setValue("type", t, { shouldDirty: true, shouldValidate: form.formState.isSubmitted })}
+            onClick={() => {
+              if (t !== type) form.setValue("categoryId", "", { shouldDirty: true }); // income and expense categories are separate lists
+              form.setValue("type", t, { shouldDirty: true, shouldValidate: form.formState.isSubmitted });
+            }}
             className={`min-h-10 flex-1 rounded-[0.5rem] text-sm font-medium transition-colors ${type === t ? "bg-surface shadow-sm" : "text-muted"}`}
           >
             {t === "EXPENSE" ? "Expense" : "Income"}
@@ -132,7 +136,14 @@ function TransactionForm({
           <OptionSelect {...describe("accountId", err("accountId"))} emptyLabel="Choose an account" options={accounts.map((a) => ({ value: a.id, label: a.name }))} {...form.register("accountId")} />
         </Field>
         <Field label="Category" htmlFor="categoryId" error={err("categoryId")}>
-          <OptionSelect {...describe("categoryId", err("categoryId"))} emptyLabel="No category" options={categories.map((c) => ({ value: c.id, label: c.name }))} {...form.register("categoryId")} />
+          <CategorySelect
+            key={type}
+            {...describe("categoryId", err("categoryId"))}
+            type={type === "INCOME" ? "INCOME" : "EXPENSE"}
+            categories={categories}
+            value={form.watch("categoryId") ?? ""}
+            onValueChange={(v) => form.setValue("categoryId", v, { shouldDirty: true })}
+          />
         </Field>
         {type === "EXPENSE" ? (
           <Field label="Vendor" htmlFor="vendor" error={err("vendor")} hint="Optional." className="sm:col-span-2">

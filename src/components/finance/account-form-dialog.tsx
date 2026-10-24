@@ -1,36 +1,36 @@
 "use client";
 import * as React from "react";
 import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Field, FormError, describe } from "@/components/forms/field";
 import { FormFooter } from "@/components/forms/form-footer";
 import { OptionSelect } from "@/components/forms/selects";
 import { useServerForm } from "@/hooks/use-server-form";
-import { CURRENCIES } from "@/lib/money";
+import { CurrencyOptions } from "@/components/forms/currency-options";
 import { archiveAccountAction, deleteAccountAction, saveAccountAction } from "@/modules/finance/actions";
 import { ACCOUNT_TYPES, accountInputSchema, type AccountFormValues } from "@/modules/finance/schema";
 import type { AccountDTO } from "@/modules/finance/types";
 import { ACCOUNT_TYPE_LABEL } from "./account-meta";
 
-function valuesFor(a: AccountDTO | null): AccountFormValues {
-  if (!a) return { name: "", type: "BANK", currency: "USD", openingBalance: "0", isSavings: false };
+function valuesFor(a: AccountDTO | null, defaultCurrency: string): AccountFormValues {
+  if (!a) return { name: "", type: "BANK", currency: defaultCurrency, openingBalance: "0", isSavings: false };
   return { id: a.id, name: a.name, type: a.type, currency: a.balance.currency, openingBalance: "0", isSavings: a.isSavings };
 }
 
-export function AccountFormDialog({ open, onOpenChange, account, hasActivity, onDeleted }: { open: boolean; onOpenChange: (o: boolean) => void; account: AccountDTO | null; hasActivity?: boolean; onDeleted?: () => void }) {
+export function AccountFormDialog({ open, onOpenChange, account, hasActivity, onDeleted, defaultCurrency = "BDT" }: { open: boolean; onOpenChange: (o: boolean) => void; account: AccountDTO | null; hasActivity?: boolean; onDeleted?: () => void; defaultCurrency?: string }) {
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={account ? "Edit account" : "New account"} description={account ? undefined : "Add a place you keep or track money."}>
-      {open && <AccountForm key={account?.id ?? "new"} account={account} hasActivity={hasActivity} onDone={() => onOpenChange(false)} onDeleted={onDeleted} />}
+      {open && <AccountForm key={account?.id ?? "new"} account={account} hasActivity={hasActivity} defaultCurrency={defaultCurrency} onDone={() => onOpenChange(false)} onDeleted={onDeleted} />}
     </Modal>
   );
 }
 
-function AccountForm({ account, hasActivity, onDone, onDeleted }: { account: AccountDTO | null; hasActivity?: boolean; onDone: () => void; onDeleted?: () => void }) {
+function AccountForm({ account, hasActivity, defaultCurrency, onDone, onDeleted }: { account: AccountDTO | null; hasActivity?: boolean; defaultCurrency: string; onDone: () => void; onDeleted?: () => void }) {
   const { form, submit, pending, formError } = useServerForm({
     schema: accountInputSchema,
-    defaultValues: valuesFor(account),
+    defaultValues: valuesFor(account, defaultCurrency),
     action: saveAccountAction,
     successMessage: account ? "Account saved" : "Account created",
     onSuccess: onDone,
@@ -69,7 +69,9 @@ function AccountForm({ account, hasActivity, onDone, onDeleted }: { account: Acc
           <OptionSelect {...describe("type", err("type"))} options={ACCOUNT_TYPES.map((t) => ({ value: t, label: ACCOUNT_TYPE_LABEL[t]! }))} {...form.register("type")} />
         </Field>
         <Field label="Currency" htmlFor="currency" error={err("currency")} hint={hasActivity ? "Has transactions — currency is locked." : undefined}>
-          <OptionSelect {...describe("currency", err("currency"), "hint")} disabled={hasActivity} options={CURRENCIES.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))} {...form.register("currency")} />
+          <Select {...describe("currency", err("currency"), "hint")} disabled={hasActivity} {...form.register("currency")}>
+            <CurrencyOptions />
+          </Select>
         </Field>
         {!account && (
           <Field label="Opening balance" htmlFor="openingBalance" error={err("openingBalance")} className="sm:col-span-2">

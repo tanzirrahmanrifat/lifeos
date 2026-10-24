@@ -1,11 +1,12 @@
 import type { Prisma } from "@/generated/prisma/client";
-import type { AccountType, TransactionType } from "@/generated/prisma/enums";
+import type { AccountType } from "@/generated/prisma/enums";
 import type { Ctx } from "@/lib/auth/require-user";
 import { parseIsoDate, toIsoDate } from "@/lib/dates";
 import { forUser } from "@/lib/db/tenant";
 import { AppError, notFound, validationError } from "@/lib/errors";
 import { Money } from "@/lib/money";
 import { assertOwnedCategory } from "@/modules/shared/categories";
+import { signOf } from "./ledger";
 import { requireMoney, requirePositiveMoney } from "./money-input";
 import type { AccountInput, TransactionInput, TransactionListQuery, TransferInput } from "./schema";
 import type { AccountDTO, TransactionDTO, TransactionListResult, TransferDTO } from "./types";
@@ -86,7 +87,7 @@ export async function reconcileAccount(ctx: Ctx, id: string): Promise<AccountDTO
   let balance = account.openingBalanceMinor;
   for (const s of sums) {
     const amt = s._sum.amountMinor ?? 0n;
-    balance += s.type === "INCOME" || s.type === "TRANSFER_IN" ? amt : -amt;
+    balance += signOf(s.type) * amt;
   }
   const updated = await db.account.update({ where: { id }, data: { currentBalanceMinor: balance } });
   return toAccountDTO(updated);
@@ -115,6 +116,7 @@ function toTxnDTO(t: TxnRow): TransactionDTO {
     projectId: t.projectId,
     paymentId: t.paymentId,
     transferId: t.transferId,
+    donationId: t.donationId,
   };
 }
 
@@ -154,8 +156,6 @@ export async function getRecentTransactions(ctx: Ctx, take: number): Promise<Tra
   return rows.map(toTxnDTO);
 }
 
-const signOf = (type: TransactionType) => (type === "INCOME" || type === "TRANSFER_IN" ? 1n : -1n);
-
 /** Create or edit an income/expense transaction, keeping the account balance exactly in sync. */
 export async function saveTransaction(ctx: Ctx, input: TransactionInput): Promise<string> {
   const db = forUser(ctx.userId);
@@ -170,6 +170,7 @@ export async function saveTransaction(ctx: Ctx, input: TransactionInput): Promis
       const existing = await tx.transaction.findFirst({ where: { id: input.id, deletedAt: null, type: { in: ["INCOME", "EXPENSE"] } } });
       if (!existing) throw notFound("Transaction");
       if (existing.paymentId) throw new AppError("FORBIDDEN", "This transaction came from an invoice payment and can't be edited here.");
+      if (existing.donationId) throw new AppError("FORBIDDEN", "This expense came from a donation. Edit it from the Donations page.");
 
       // Reverse the old effect, then apply the new one — correct even if the account itself changed.
       await tx.account.update({ where: { id: existing.accountId }, data: { currentBalanceMinor: { increment: -signOf(existing.type) * existing.amountMinor } } });
@@ -195,6 +196,7 @@ export async function deleteTransaction(ctx: Ctx, id: string): Promise<void> {
     const existing = await tx.transaction.findFirst({ where: { id, deletedAt: null, type: { in: ["INCOME", "EXPENSE"] } } });
     if (!existing) throw notFound("Transaction");
     if (existing.paymentId) throw new AppError("FORBIDDEN", "This transaction came from an invoice payment and can't be deleted here.");
+    if (existing.donationId) throw new AppError("FORBIDDEN", "This expense came from a donation. Delete it from the Donations page.");
     await tx.transaction.update({ where: { id: existing.id }, data: { deletedAt: new Date() } });
     await tx.account.update({ where: { id: existing.accountId }, data: { currentBalanceMinor: { increment: -signOf(existing.type) * existing.amountMinor } } });
   });

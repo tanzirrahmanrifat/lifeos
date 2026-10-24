@@ -26,6 +26,7 @@ enum CategoryType {
   GOAL
   NOTE
   HABIT
+  DONATION
 }
 
 enum AccountType {
@@ -42,6 +43,22 @@ enum TransactionType {
   EXPENSE
   TRANSFER_IN
   TRANSFER_OUT
+  /// Money that came in because of a personal loan: you borrowed it, or a borrower repaid you.
+  LOAN_IN
+  /// Money that went out because of a personal loan: you lent it, or you repaid a lender.
+  LOAN_OUT
+}
+
+/// LENT = you gave the money and will get it back (পাওনা). BORROWED = you took it and owe it (দেনা).
+enum LoanDirection {
+  LENT
+  BORROWED
+}
+
+/// STANDARD = ordinary ধার. QARD_HASAN = interest-free কর্জে হাসানা.
+enum LoanKind {
+  STANDARD
+  QARD_HASAN
 }
 
 enum BudgetKind {
@@ -185,6 +202,9 @@ model User {
   projects              Project[]
   invoices              Invoice[]
   payments              Payment[]
+  loans                 Loan[]
+  loanRepayments        LoanRepayment[]
+  donations             Donation[]
   numberSequences       NumberSequence[]
   attachments           Attachment[]
   notifications         Notification[]
@@ -305,6 +325,7 @@ model Category {
   habits         Habit[]
   goals          Goal[]
   notes          Note[]
+  donations      Donation[]
 
   @@unique([userId, type, name])
   @@index([userId, type])
@@ -350,6 +371,9 @@ model Account {
   transfersIn  Transfer[]    @relation("TransferTo")
   payments     Payment[]
   contributions SavingsContribution[]
+  loans          Loan[]
+  loanRepayments LoanRepayment[]
+  donations      Donation[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -372,6 +396,12 @@ model Transaction {
   projectId   String?
   paymentId   String?         @unique
   transferId  String?
+  /// Set on the LOAN_OUT / LOAN_IN leg created when a loan is given or taken.
+  loanId          String?         @unique
+  /// Set on the leg created by a loan repayment.
+  loanRepaymentId String?         @unique
+  /// Set on the EXPENSE created when a donation is paid from an account.
+  donationId      String?         @unique
   notes       String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
@@ -379,6 +409,9 @@ model Transaction {
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   account  Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  loan          Loan?          @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  loanRepayment LoanRepayment? @relation(fields: [loanRepaymentId], references: [id], onDelete: Restrict)
+  donation      Donation?      @relation(fields: [donationId], references: [id], onDelete: Restrict)
   category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   client   Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
   project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
@@ -490,6 +523,94 @@ model SavingsContribution {
   @@index([userId, date])
   @@index([financialGoalId])
   @@map("savings_contributions")
+}
+
+/// A personal loan (ধার) or an interest-free loan (কর্জে হাসানা), either given or taken.
+/// Loans are never hard-deleted. `repaidMinor` / `forgivenMinor` are caches kept in sync by the
+/// loans service inside the same DB transaction as the repayment rows.
+model Loan {
+  id             String        @id @default(cuid())
+  userId         String
+  direction      LoanDirection
+  kind           LoanKind      @default(STANDARD)
+  personName     String
+  personPhone    String?
+  principalMinor BigInt
+  currency       String
+  date           DateTime      @db.Date
+  dueDate        DateTime?     @db.Date
+  /// Optional: the account the money physically left (LENT) or arrived in (BORROWED).
+  accountId      String?
+  repaidMinor    BigInt        @default(0)
+  /// Remaining amount the lender waived (মাফ). Only for LENT loans.
+  forgivenMinor  BigInt        @default(0)
+  forgivenAt     DateTime?
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account     Account?        @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  repayments  LoanRepayment[]
+  transaction Transaction?
+  donations   Donation[]
+
+  @@index([userId, direction, deletedAt])
+  @@index([userId, dueDate])
+  @@map("loans")
+}
+
+model LoanRepayment {
+  id          String    @id @default(cuid())
+  userId      String
+  loanId      String
+  amountMinor BigInt
+  currency    String
+  date        DateTime  @db.Date
+  /// Optional: where the money arrived (LENT) or was paid from (BORROWED).
+  accountId   String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loan        Loan         @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  account     Account?     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  transaction Transaction?
+
+  @@index([loanId])
+  @@index([userId, date])
+  @@map("loan_repayments")
+}
+
+/// Charity given (দান): sadaqah, zakat, fitra, etc. — categorised with DONATION categories.
+model Donation {
+  id          String    @id @default(cuid())
+  userId      String
+  recipient   String?
+  categoryId  String?
+  amountMinor BigInt
+  currency    String
+  date        DateTime  @db.Date
+  /// Optional: the account it was paid from. When set, a matching EXPENSE transaction is created.
+  accountId   String?
+  /// Set when the donation came from forgiving the rest of a loan you gave.
+  loanId      String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account     Account?     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  loan        Loan?        @relation(fields: [loanId], references: [id], onDelete: SetNull)
+  transaction Transaction?
+
+  @@index([userId, date])
+  @@index([userId, categoryId])
+  @@map("donations")
 }
 
 // ─────────────────────────── Productivity ───────────────────────────

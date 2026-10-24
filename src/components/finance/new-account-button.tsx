@@ -4,7 +4,7 @@ import * as React from "react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { AccountFormDialog } from "./account-form-dialog";
 
-export function NewAccountButton({ children, ...props }: Omit<ButtonProps, "onClick">) {
+export function NewAccountButton({ children, defaultCurrency, ...props }: Omit<ButtonProps, "onClick"> & { defaultCurrency?: string }) {
   const [open, setOpen] = React.useState(false);
   return (
     <>
@@ -15,7 +15,7 @@ export function NewAccountButton({ children, ...props }: Omit<ButtonProps, "onCl
           </>
         )}
       </Button>
-      <AccountFormDialog open={open} onOpenChange={setOpen} account={null} />
+      <AccountFormDialog open={open} onOpenChange={setOpen} account={null} defaultCurrency={defaultCurrency} />
     </>
   );
 }
